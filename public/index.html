@@ -3,27 +3,59 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>骗子酒馆 · Cheat Bar</title>
+  <title>骗子酒馆 · Liar Tavern</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div id="app">
-    <!-- 大厅 -->
-    <section id="lobby-screen" class="screen active">
+    <!-- 登录/注册 -->
+    <section id="auth-screen" class="screen active">
       <div class="card panel">
         <h1>🍺 骗子酒馆</h1>
         <p class="subtitle">四人联机 · 谎言与左轮</p>
-        <label>
-          你的昵称（创建/加入房间都会使用）
-          <input type="text" id="player-name" maxlength="12" placeholder="输入昵称">
-        </label>
-        <button id="btn-create" class="btn primary">创建房间</button>
-        <button id="btn-rules" class="btn secondary">📜 规则说明</button>
-        <div class="divider">或加入房间</div>
-        <div class="join-row">
-          <input type="text" id="room-code" maxlength="4" placeholder="房间码">
-          <button id="btn-join" class="btn secondary">加入</button>
+
+        <div class="auth-tabs">
+          <button id="tab-login" class="auth-tab active">登录</button>
+          <button id="tab-register" class="auth-tab">注册</button>
         </div>
+
+        <div id="auth-form">
+          <label>
+            昵称
+            <input type="text" id="auth-name" maxlength="12" placeholder="输入昵称（最多10字节）">
+          </label>
+          <label>
+            密码
+            <input type="tel" id="auth-password" maxlength="6" inputmode="numeric" pattern="\d{6}" placeholder="6位数字">
+          </label>
+          <p id="auth-tip" class="tip">没有账号？点击上方“注册”。</p>
+          <p id="auth-register-warning" class="tip warning hidden">请牢记密码，密码无法找回。</p>
+          <button id="btn-auth" class="btn primary">登录</button>
+        </div>
+
+        <p id="auth-error" class="error"></p>
+      </div>
+    </section>
+
+    <!-- 大厅 -->
+    <section id="lobby-screen" class="screen">
+      <div class="card panel">
+        <div class="lobby-header">
+          <div class="nickname-display">
+            <span class="nickname-label">欢迎，</span>
+            <span id="display-nickname">玩家</span>
+            <span class="reputation-badge">🏆 声望：<span id="display-reputation">0</span></span>
+          </div>
+        </div>
+
+        <h1>🍺 骗子酒馆</h1>
+        <p class="subtitle">四人联机 · 谎言与左轮</p>
+
+        <button id="btn-create" class="btn primary lobby-btn">创建房间</button>
+        <button id="btn-lobby" class="btn primary lobby-btn">🏛 游戏大厅</button>
+        <button id="btn-ranking" class="btn secondary lobby-btn">🏆 声望排名</button>
+        <button id="btn-rules" class="btn secondary lobby-btn">📜 规则说明</button>
+
         <p id="lobby-error" class="error"></p>
       </div>
     </section>
@@ -97,9 +129,10 @@
       </div>
 
       <div id="gameover-overlay" class="overlay hidden">
-        <div class="overlay-content">
+        <div class="overlay-content gameover-panel">
           <h2>🎉 游戏结束</h2>
           <p id="winner-text"></p>
+          <div id="gameover-ranking" class="gameover-ranking"></div>
         </div>
       </div>
 
@@ -121,6 +154,29 @@
         </div>
       </div>
     </section>
+  </div>
+
+  <!-- 游戏大厅弹层 -->
+  <div id="lobby-overlay" class="overlay hidden">
+    <div class="overlay-content lobby-panel">
+      <div class="lobby-panel-header">
+        <h2>游戏大厅</h2>
+        <button id="btn-close-lobby" class="btn tiny ghost">✕ 关闭</button>
+      </div>
+      <div id="lobby-room-list" class="lobby-room-list"></div>
+    </div>
+  </div>
+
+  <!-- 声望排名弹层 -->
+  <div id="ranking-overlay" class="overlay hidden">
+    <div class="overlay-content ranking-panel">
+      <div class="ranking-panel-header">
+        <h2>🏆 酒馆声望排名</h2>
+        <button id="btn-close-ranking" class="btn tiny ghost">✕ 关闭</button>
+      </div>
+      <div id="ranking-list" class="ranking-list"></div>
+      <div id="my-rank" class="my-rank"></div>
+    </div>
   </div>
 
   <!-- 规则说明 -->
@@ -194,6 +250,9 @@
           <li>出牌必须声明“全是本轮点数”，不能只声明其中一张。</li>
           <li>质疑是唯一翻开牌的方式。</li>
           <li>每轮重新发牌，不是补牌。</li>
+          <li>玩家超过 20 秒没有操作会强制质疑上家。</li>
+          <li>酒馆声望每晚 00:00（北京时间）会重置。</li>
+          <li>掉线玩家会被 AI 接管，不会被扣除声望。</li>
         </ul>
 
         <p class="rule-author">制作者：爱吃豆芽的李</p>

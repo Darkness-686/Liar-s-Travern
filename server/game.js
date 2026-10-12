@@ -15,6 +15,8 @@ class Game {
     this.lastPlay = null;
     this.winner = null;
     this.pendingChallenge = null;
+    this.deathOrder = [];
+    this.aiMemory = null;
   }
 
   start(chamberSize) {
@@ -171,8 +173,25 @@ class Game {
     const shot = player.revolver.fire();
     if (shot.fired) {
       player.alive = false;
+      this.deathOrder.push({ playerId: player.id, time: Date.now() });
     }
     return shot;
+  }
+
+  getRanking() {
+    const ranking = [];
+    const alive = this.players.find(p => p.alive);
+    if (alive) {
+      ranking.push({ playerId: alive.id, name: alive.name, rank: 1 });
+    }
+    for (let i = this.deathOrder.length - 1; i >= 0; i--) {
+      const died = this.deathOrder[i];
+      const player = this.players.find(p => p.id === died.playerId);
+      if (player) {
+        ranking.push({ playerId: player.id, name: player.name, rank: ranking.length + 1 });
+      }
+    }
+    return ranking;
   }
 
   endRound(shooter) {

@@ -1,0 +1,15 @@
+{
+  "users": {
+    "豆芽菜": {
+      "password": "000000",
+      "reputation": 0,
+      "createdAt": "2026-10-12T12:58:15.001Z"
+    },
+    "LQL": {
+      "password": "000000",
+      "reputation": 0,
+      "createdAt": "2026-10-12T13:00:00.408Z"
+    }
+  },
+  "__lastResetAt__": "2026-10-12T12:55:06.406Z"
+}

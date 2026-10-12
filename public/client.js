@@ -2,17 +2,32 @@ const socket = io();
 
 // DOM refs
 const screens = {
+  auth: document.getElementById('auth-screen'),
   lobby: document.getElementById('lobby-screen'),
   room: document.getElementById('room-screen'),
   game: document.getElementById('game-screen')
 };
 
 const els = {
-  playerName: document.getElementById('player-name'),
-  roomCode: document.getElementById('room-code'),
+  authName: document.getElementById('auth-name'),
+  authPassword: document.getElementById('auth-password'),
+  btnAuth: document.getElementById('btn-auth'),
+  tabLogin: document.getElementById('tab-login'),
+  tabRegister: document.getElementById('tab-register'),
+  authTip: document.getElementById('auth-tip'),
+  authRegisterWarning: document.getElementById('auth-register-warning'),
+  authError: document.getElementById('auth-error'),
+
+  displayNickname: document.getElementById('display-nickname'),
+  displayReputation: document.getElementById('display-reputation'),
   btnCreate: document.getElementById('btn-create'),
-  btnJoin: document.getElementById('btn-join'),
+  btnLobby: document.getElementById('btn-lobby'),
+  btnRanking: document.getElementById('btn-ranking'),
   lobbyError: document.getElementById('lobby-error'),
+
+  lobbyOverlay: document.getElementById('lobby-overlay'),
+  btnCloseLobby: document.getElementById('btn-close-lobby'),
+  lobbyRoomList: document.getElementById('lobby-room-list'),
 
   displayRoomCode: document.getElementById('display-room-code'),
   btnCopyCode: document.getElementById('btn-copy-code'),
@@ -42,6 +57,7 @@ const els = {
 
   gameoverOverlay: document.getElementById('gameover-overlay'),
   winnerText: document.getElementById('winner-text'),
+  gameoverRanking: document.getElementById('gameover-ranking'),
 
   hostDecisionOverlay: document.getElementById('host-decision-overlay'),
   hostWinnerSummary: document.getElementById('host-winner-summary'),
@@ -56,7 +72,12 @@ const els = {
 
   btnRules: document.getElementById('btn-rules'),
   rulesOverlay: document.getElementById('rules-overlay'),
-  btnCloseRules: document.getElementById('btn-close-rules')
+  btnCloseRules: document.getElementById('btn-close-rules'),
+
+  rankingOverlay: document.getElementById('ranking-overlay'),
+  btnCloseRanking: document.getElementById('btn-close-ranking'),
+  rankingList: document.getElementById('ranking-list'),
+  myRank: document.getElementById('my-rank')
 };
 
 const sounds = {
@@ -85,6 +106,10 @@ let selectedCardIds = new Set();
 let gameoverTimer = null;
 let gameoverHandled = false;
 let prevGameState = null;
+let authMode = 'login';
+let turnRemaining = null;
+let myReputation = 0;
+let lastGameoverResult = null;
 
 function showScreen(name) {
   Object.values(screens).forEach(s => s.classList.remove('active'));
@@ -100,11 +125,68 @@ function getAvatar(name) {
   return (name || '?').charAt(0).toUpperCase();
 }
 
+// Auth flow
+function setAuthMode(mode) {
+  authMode = mode;
+  if (mode === 'login') {
+    els.tabLogin.classList.add('active');
+    els.tabRegister.classList.remove('active');
+    els.btnAuth.textContent = '登录';
+    els.authTip.textContent = '没有账号？点击上方“注册”。';
+    els.authRegisterWarning.classList.add('hidden');
+  } else {
+    els.tabLogin.classList.remove('active');
+    els.tabRegister.classList.add('active');
+    els.btnAuth.textContent = '注册';
+    els.authTip.textContent = '已有账号？点击上方“登录”。';
+    els.authRegisterWarning.classList.remove('hidden');
+  }
+  setError(els.authError, '');
+}
+
+els.tabLogin.addEventListener('click', () => setAuthMode('login'));
+els.tabRegister.addEventListener('click', () => setAuthMode('register'));
+
+function submitAuth() {
+  const name = els.authName.value.trim();
+  const password = els.authPassword.value.trim();
+  if (!name) return setError(els.authError, '请输入昵称');
+  if (!/^\d{6}$/.test(password)) return setError(els.authError, '密码必须是 6 位数字');
+
+  const event = authMode === 'login' ? 'login' : 'register';
+  socket.emit(event, { name, password }, (res) => {
+    if (res.error) return setError(els.authError, res.error);
+    enterLobby(res.name, res.reputation);
+  });
+}
+
+els.btnAuth.addEventListener('click', submitAuth);
+els.authPassword.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') submitAuth();
+});
+
+function enterLobby(name, reputation) {
+  myReputation = typeof reputation === 'number' ? reputation : 0;
+  els.displayNickname.textContent = name;
+  els.displayReputation.textContent = myReputation;
+  els.authPassword.value = '';
+  setError(els.authError, '');
+  showScreen('lobby');
+
+  // Try to reconnect to a previous room
+  socket.emit('reconnect', { name }, (res) => {
+    if (res.success) {
+      myPlayerId = res.playerId;
+      roomCode = res.code;
+      isHost = false;
+      showScreen('room');
+    }
+  });
+}
+
 // Lobby events
 els.btnCreate.addEventListener('click', () => {
-  const name = els.playerName.value.trim();
-  if (!name) return setError(els.lobbyError, '请输入昵称');
-  socket.emit('create-room', { playerName: name }, (res) => {
+  socket.emit('create-room', {}, (res) => {
     if (res.error) return setError(els.lobbyError, res.error);
     myPlayerId = res.playerId;
     roomCode = res.code;
@@ -114,20 +196,112 @@ els.btnCreate.addEventListener('click', () => {
   });
 });
 
-els.btnJoin.addEventListener('click', () => {
-  const name = els.playerName.value.trim();
-  if (!name) return setError(els.lobbyError, '请输入昵称');
-  const code = els.roomCode.value.trim().toUpperCase();
-  if (!code) return setError(els.lobbyError, '请输入房间码');
-  socket.emit('join-room', { roomCode: code, playerName: name }, (res) => {
-    if (res.error) return setError(els.lobbyError, res.error);
-    myPlayerId = res.playerId;
-    roomCode = res.code;
-    isHost = false;
-    showScreen('room');
-    if (roomState) renderRoom(roomState);
+els.btnLobby.addEventListener('click', () => {
+  socket.emit('get-room-list', {}, (res) => {
+    renderLobbyRooms(res.rooms || []);
   });
+  els.lobbyOverlay.classList.remove('hidden');
 });
+
+els.btnCloseLobby.addEventListener('click', () => {
+  els.lobbyOverlay.classList.add('hidden');
+});
+
+els.btnRanking.addEventListener('click', () => {
+  socket.emit('get-reputation-ranking', {}, (res) => {
+    renderRanking(res.ranking || [], res.viewerRank);
+  });
+  els.rankingOverlay.classList.remove('hidden');
+});
+
+els.btnCloseRanking.addEventListener('click', () => {
+  els.rankingOverlay.classList.add('hidden');
+});
+
+els.rankingOverlay.addEventListener('click', (e) => {
+  if (e.target === els.rankingOverlay) {
+    els.rankingOverlay.classList.add('hidden');
+  }
+});
+
+els.lobbyOverlay.addEventListener('click', (e) => {
+  if (e.target === els.lobbyOverlay) {
+    els.lobbyOverlay.classList.add('hidden');
+  }
+});
+
+function renderLobbyRooms(rooms) {
+  els.lobbyRoomList.innerHTML = '';
+
+  if (!rooms || rooms.length === 0) {
+    els.lobbyRoomList.innerHTML = '<div class="lobby-empty">暂无房间，点击“创建房间”开一个吧</div>';
+    return;
+  }
+
+  rooms.forEach(r => {
+    const isWaiting = r.status === 'waiting';
+    const row = document.createElement('div');
+    row.className = 'lobby-room-row';
+    row.innerHTML = `
+      <div class="room-info">
+        <div class="room-code">房间号：${r.code}</div>
+        <div class="room-meta">
+          <span>房主：${r.hostName || '未知'}</span>
+          <span>人数：${r.playerCount}/${r.maxPlayers}</span>
+          <span class="status-badge ${isWaiting ? 'waiting' : 'playing'}">${isWaiting ? '等待中' : '游戏中'}</span>
+        </div>
+      </div>
+      <button class="btn secondary btn-join-room" ${isWaiting ? '' : 'disabled'}>加入</button>
+    `;
+
+    const joinBtn = row.querySelector('.btn-join-room');
+    if (isWaiting) {
+      joinBtn.addEventListener('click', () => {
+        socket.emit('join-room', { roomCode: r.code }, (res) => {
+          if (res.error) return setError(els.lobbyError, res.error);
+          myPlayerId = res.playerId;
+          roomCode = res.code;
+          isHost = false;
+          els.lobbyOverlay.classList.add('hidden');
+          showScreen('room');
+          if (roomState) renderRoom(roomState);
+        });
+      });
+    }
+
+    els.lobbyRoomList.appendChild(row);
+  });
+}
+
+function renderRanking(ranking, viewerRank) {
+  els.rankingList.innerHTML = '';
+
+  if (!ranking || ranking.length === 0) {
+    els.rankingList.innerHTML = '<div class="ranking-empty">暂无排名数据</div>';
+    els.myRank.textContent = '';
+    return;
+  }
+
+  ranking.forEach(entry => {
+    const row = document.createElement('div');
+    row.className = 'ranking-row';
+    if (entry.name === els.displayNickname.textContent) {
+      row.classList.add('self');
+    }
+    row.innerHTML = `
+      <span class="ranking-rank">#${entry.rank}</span>
+      <span class="ranking-name">${entry.name}</span>
+      <span class="ranking-reputation">${entry.reputation}</span>
+    `;
+    els.rankingList.appendChild(row);
+  });
+
+  if (viewerRank) {
+    els.myRank.textContent = `你的排名：#${viewerRank}`;
+  } else {
+    els.myRank.textContent = '你的排名：未上榜';
+  }
+}
 
 els.btnCopyCode.addEventListener('click', () => {
   if (roomCode) navigator.clipboard.writeText(roomCode).catch(() => {});
@@ -156,7 +330,10 @@ els.btnStart.addEventListener('click', () => {
 });
 
 els.btnLeave.addEventListener('click', () => {
-  location.reload();
+  socket.emit('leave-room', {}, (res) => {
+    if (res.error) setError(els.roomError, res.error);
+  });
+  resetToLobby();
 });
 
 els.btnRestart.addEventListener('click', () => {
@@ -198,8 +375,8 @@ function resetToLobby() {
   roomState = null;
   gameState = null;
   selectedCardIds.clear();
-  els.playerName.value = '';
-  els.roomCode.value = '';
+  turnRemaining = null;
+  clearTurnTimer();
   showScreen('lobby');
 }
 
@@ -229,6 +406,12 @@ socket.on('room-state', (state) => {
   renderRoom(state);
 });
 
+socket.on('lobby-update', (data) => {
+  if (!els.lobbyOverlay.classList.contains('hidden')) {
+    renderLobbyRooms(data.rooms || []);
+  }
+});
+
 socket.on('game-state', (state) => {
   const prev = gameState;
   prevGameState = prev;
@@ -238,8 +421,8 @@ socket.on('game-state', (state) => {
     hideDecisionOverlays();
   }
   renderGame();
+  clearTurnTimer();
 
-  // 检测是否有新出牌，播放音效和飞牌动画
   const prevLast = prev?.lastPlay;
   const curLast = state.lastPlay;
   if (curLast && (!prevLast || prevLast.playerId !== curLast.playerId || prevLast.count !== curLast.count)) {
@@ -253,21 +436,36 @@ socket.on('challenge-result', (result) => {
 });
 
 socket.on('deal-cards', (data) => {
-  // 进入游戏界面并清掉上一局的弹窗
   showScreen('game');
   selectedCardIds.clear();
   resetGameoverState();
   els.challengeOverlay.classList.add('hidden');
-  // 发牌动画期间冻结界面，防止误操作
   if (gameState) {
     gameState.phase = 'dealing';
     renderGame();
   }
+  clearTurnTimer();
   animateDealToSeats(data.recipients, data.count);
 });
 
 socket.on('room-disbanded', () => {
   resetToLobby();
+});
+
+socket.on('turn-tick', (data) => {
+  turnRemaining = data.remaining;
+  if (gameState) renderGame();
+});
+
+socket.on('gameover-result', (result) => {
+  lastGameoverResult = result;
+  if (gameState && gameState.phase === 'gameover') {
+    if (gameoverHandled) {
+      renderGameoverRanking(result);
+    } else {
+      showGameover(gameState.winner, result);
+    }
+  }
 });
 
 function renderRoom(state) {
@@ -286,6 +484,7 @@ function renderRoom(state) {
         <div>${p.name} ${p.id === myPlayerId ? '(你)' : ''}</div>
         ${p.isHost ? '<span class="tag">房主</span>' : ''}
         ${p.isAI ? '<span class="tag">AI</span>' : ''}
+        ${!p.connected && !p.isAI ? '<span class="tag offline">离线</span>' : ''}
       </div>
     `;
     els.playerList.appendChild(li);
@@ -331,16 +530,29 @@ function renderGame() {
 
     const isMe = i === 0;
     const handHtml = isMe ? '' : renderOppHand(p.handCount);
+    const timerHtml = isMe ? '<div class="seat-timer" id="my-turn-timer"></div>' : '';
 
     seatEl.innerHTML = `
       <div class="seat-info">
-        <div class="seat-avatar">${getAvatar(p.name)}</div>
+        <div class="avatar-timer-wrap">
+          <div class="seat-avatar">${getAvatar(p.name)}</div>
+          ${timerHtml}
+        </div>
         <div class="seat-name">${p.name}</div>
         <div class="seat-meta">${p.handCount}</div>
         <div class="revolver-dots">${renderRevolver(p.revolver, p.alive)}</div>
       </div>
       ${handHtml}
     `;
+  }
+
+  // my turn timer
+  if (state.phase === 'playing' && state.turnPlayerId === myPlayerId && turnRemaining > 0) {
+    const timerEl = document.getElementById('my-turn-timer');
+    if (timerEl) {
+      timerEl.textContent = `${turnRemaining}s`;
+      timerEl.classList.add('visible');
+    }
   }
 
   // my hand
@@ -364,7 +576,7 @@ function renderGame() {
 
   if (state.phase === 'gameover') {
     els.turnHint.textContent = '游戏结束';
-    showGameover(state.winner);
+    showGameover(state.winner, lastGameoverResult);
   } else if (state.phase === 'dealing') {
     els.turnHint.textContent = '发牌中…';
   } else if (resolving) {
@@ -376,6 +588,15 @@ function renderGame() {
   } else {
     const tp = players.find(p => p.id === state.turnPlayerId);
     els.turnHint.textContent = tp ? `等待 ${tp.name}…` : '';
+  }
+}
+
+function clearTurnTimer() {
+  turnRemaining = null;
+  const timerEl = document.getElementById('my-turn-timer');
+  if (timerEl) {
+    timerEl.classList.remove('visible');
+    timerEl.textContent = '';
   }
 }
 
@@ -428,7 +649,6 @@ function toggleCard(id) {
   const me = gameState.players.find(p => p.id === myPlayerId);
   if (!me || !me.alive || gameState.turnPlayerId !== myPlayerId || gameState.phase !== 'playing') return;
 
-  // 如果其他人都出完了，不能选牌
   const othersEmpty = gameState.players.filter(p => p.alive && p.id !== myPlayerId).every(p => p.handCount === 0);
   if (gameState.lastPlay && me.handCount > 0 && othersEmpty) return;
 
@@ -475,13 +695,41 @@ function showChallengeOverlay(result) {
   }, 4000);
 }
 
-function showGameover(winner) {
+function renderGameoverRanking(result) {
+  if (!result || !result.ranking || result.ranking.length === 0) {
+    els.gameoverRanking.innerHTML = '';
+    return;
+  }
+  els.gameoverRanking.innerHTML = '';
+  result.ranking.forEach(entry => {
+    const row = document.createElement('div');
+    row.className = 'gameover-rank-row';
+    const sign = entry.reputationChange > 0 ? '+' : '';
+    const changeClass = entry.reputationChange > 0 ? 'positive' : (entry.reputationChange < 0 ? 'negative' : 'zero');
+    row.innerHTML = `
+      <span class="gameover-rank">第 ${entry.rank} 名</span>
+      <span class="gameover-rank-name">${entry.name}</span>
+      <span class="gameover-rank-change ${changeClass}">${sign}${entry.reputationChange}</span>
+    `;
+    els.gameoverRanking.appendChild(row);
+
+    // Update local reputation display if this entry belongs to current player
+    if (entry.name === els.displayNickname.textContent && typeof entry.newReputation === 'number') {
+      myReputation = entry.newReputation;
+      els.displayReputation.textContent = myReputation;
+    }
+  });
+}
+
+function showGameover(winner, result) {
   if (gameoverHandled) return;
   gameoverHandled = true;
 
   const winnerText = winner ? `胜利者：${winner.name}` : '所有人都出局了';
   els.winnerText.textContent = winnerText;
   els.hostWinnerSummary.textContent = winnerText;
+
+  renderGameoverRanking(result);
   els.gameoverOverlay.classList.remove('hidden');
 
   playSound('victory');
@@ -493,13 +741,14 @@ function showGameover(winner) {
     } else {
       els.waitingHostOverlay.classList.remove('hidden');
     }
-  }, 5000);
+  }, 7000);
 }
 
 function resetGameoverState() {
   clearTimeout(gameoverTimer);
   gameoverTimer = null;
   gameoverHandled = false;
+  lastGameoverResult = null;
   els.gameoverOverlay.classList.add('hidden');
   els.hostDecisionOverlay.classList.add('hidden');
   els.waitingHostOverlay.classList.add('hidden');

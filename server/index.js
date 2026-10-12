@@ -4,6 +4,7 @@ const { Server } = require('socket.io');
 const path = require('path');
 const config = require('./config');
 const room = require('./room');
+const users = require('./users');
 
 const app = express();
 const server = http.createServer(app);
@@ -14,6 +15,7 @@ const io = new Server(server, {
   }
 });
 
+app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 app.use('/sound', express.static(path.join(__dirname, '..', 'sound')));
 
@@ -24,13 +26,57 @@ app.get('/health', (req, res) => {
 io.on('connection', (socket) => {
   console.log('connect', socket.id);
 
+  socket.on('register', (data, callback) => {
+    const result = users.register(data?.name, data?.password);
+    if (!result.error) {
+      socket.account = { name: result.name };
+    }
+    safeCallback(callback, result);
+  });
+
+  socket.on('login', (data, callback) => {
+    const result = users.login(data?.name, data?.password);
+    if (!result.error) {
+      socket.account = { name: result.name };
+    }
+    safeCallback(callback, result);
+  });
+
+  socket.on('reconnect', (data, callback) => {
+    if (!socket.account) {
+      const result = users.login(data?.name, data?.password);
+      if (result.error) return safeCallback(callback, result);
+      socket.account = { name: result.name };
+    }
+    const result = room.reconnect(io, socket, socket.account.name);
+    safeCallback(callback, result);
+  });
+
   socket.on('create-room', (data, callback) => {
-    const result = room.createRoom(io, socket, data?.playerName);
+    if (!socket.account) return safeCallback(callback, { error: '请先登录' });
+    const result = room.createRoom(io, socket, socket.account.name);
     safeCallback(callback, result);
   });
 
   socket.on('join-room', (data, callback) => {
-    const result = room.joinRoom(io, socket, data?.roomCode, data?.playerName);
+    if (!socket.account) return safeCallback(callback, { error: '请先登录' });
+    const result = room.joinRoom(io, socket, data?.roomCode, socket.account.name);
+    safeCallback(callback, result);
+  });
+
+  socket.on('get-room-list', (data, callback) => {
+    const result = { rooms: room.getLobbyRooms() };
+    safeCallback(callback, result);
+  });
+
+  socket.on('get-reputation-ranking', (data, callback) => {
+    const viewerName = socket.account?.name;
+    const result = users.getReputationRanking(viewerName);
+    safeCallback(callback, result);
+  });
+
+  socket.on('leave-room', (data, callback) => {
+    const result = room.leaveRoom(io, socket);
     safeCallback(callback, result);
   });
 
@@ -86,6 +132,9 @@ function safeCallback(callback, payload) {
   }
 }
 
+users.resetAllReputationIfNeeded();
+users.scheduleDailyReset();
+
 server.listen(config.PORT, () => {
-  console.log(`Cheat Bar server running on port ${config.PORT}`);
+  console.log(`Liar Tavern server running on port ${config.PORT}`);
 });
